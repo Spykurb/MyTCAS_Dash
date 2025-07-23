@@ -1,18 +1,14 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
 import pandas as pd
 
-# ตั้งค่า ChromeDriver
-options = Options()
-# options.add_argument("--headless")  # ลอง comment ออกเพื่อดู browser ทำงาน
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
+options = webdriver.ChromeOptions()
+# options.add_argument("--headless")
 driver = webdriver.Chrome(options=options)
 wait = WebDriverWait(driver, 15)
 
@@ -21,71 +17,72 @@ base_url = "https://course.mytcas.com/"
 all_data = []
 
 for keyword in keywords:
+    print(f"\nเริ่มค้นหา keyword: {keyword}")
     driver.get(base_url)
-    try:
-        # รอให้ช่อง search โหลดเสร็จ
+
+    # รอช่อง search และพิมพ์ทีละตัว
+    search_input = wait.until(EC.presence_of_element_located((By.ID, "search")))
+    search_input.clear()
+    for ch in keyword:
+        search_input.send_keys(ch)
+        time.sleep(0.2)
+
+    # รอผลลัพธ์
+    wait.until(EC.visibility_of_element_located((By.ID, "results")))
+    time.sleep(1)
+
+    # ดึงจำนวนหลักสูตรทั้งหมด
+    li_elements = driver.find_elements(By.XPATH, '//*[@id="results"]/ul/li')
+    total_courses = len(li_elements)
+    print(f"พบ {total_courses} หลักสูตรสำหรับ '{keyword}'")
+
+    for i in range(1, total_courses + 1):
+        # หา element ใหม่เสมอ
+        course_xpath = f'//*[@id="results"]/ul/li[{i}]/a'
+        link_element = wait.until(EC.element_to_be_clickable((By.XPATH, course_xpath)))
+        href = link_element.get_attribute('href')
+        print(f"[{i}/{total_courses}] เข้าไปดึงข้อมูลหลักสูตร: {href}")
+
+        # คลิกเข้าไปดูรายละเอียด
+        ActionChains(driver).move_to_element(link_element).click().perform()
+
+        # ดึงข้อมูลภายในหน้า overview
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="overview"]/dl')))
+            time.sleep(1)
+            overview_dl_html = driver.find_element(By.XPATH, '//*[@id="overview"]/dl').get_attribute('innerHTML')
+            soup = BeautifulSoup(overview_dl_html, 'html.parser')
+
+            # สร้าง dictionary สำหรับข้อมูลแต่ละหลักสูตร
+            data = {'Keyword': keyword, 'Course URL': href}
+            dts = soup.find_all('dt')
+            dds = soup.find_all('dd')
+            for dt, dd in zip(dts, dds):
+                key = dt.get_text(strip=True)
+                val = dd.get_text(strip=True)
+                data[key] = val
+            all_data.append(data)
+            print("✅ เก็บข้อมูลหลักสูตรเสร็จ")
+        except:
+            print("❌ ไม่สามารถดึงข้อมูลจากหน้าหลักสูตร")
+
+        # กลับไปหน้าเดิม
+        driver.back()
+
+        # ✅ พิมพ์ keyword ใหม่อีกครั้งเพื่อให้ results แสดง
         search_input = wait.until(EC.presence_of_element_located((By.ID, "search")))
         search_input.clear()
-
-        # พิมพ์ทีละตัวเหมือนคนพิมพ์
         for ch in keyword:
             search_input.send_keys(ch)
-            time.sleep(0.2)  # หน่วงเวลา 0.2 วินาที/ตัวอักษร
+            time.sleep(0.2)
 
-        # รอให้ div#result ปรากฏ
-        wait.until(EC.visibility_of_element_located((By.ID, "result")))
-        time.sleep(1)  # รอให้ผลลัพธ์ขึ้นเต็มที่
+        wait.until(EC.visibility_of_element_located((By.ID, "results")))
+        time.sleep(1)
 
-        # ดึงลิงก์หลักสูตรจากผลลัพธ์
-        # รอให้ ul.t-programs ปรากฏ
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'ul.t-programs')))
-        time.sleep(1)  # รอเสริมให้โหลด DOM เสร็จสมบูรณ์
-
-        program_links = driver.find_elements(By.CSS_SELECTOR, 'ul.t-programs li a')
-
-        print(f"พบหลักสูตรทั้งหมด: {len(program_links)} รายการ")
-        course_links = []
-        for a in program_links:
-            href = a.get_attribute('href')
-            print(href)
-            if href:
-                course_links.append(href)
-
-
-    except Exception as e:
-        print(f"❌ หา input หรือผลลัพธ์ไม่เจอ: {e}")
-        continue
-
-    # ดึงข้อมูลแต่ละหลักสูตร
-    for link in course_links:
-        try:
-            driver.get(link)
-            wait.until(EC.presence_of_element_located((By.ID, "overview")))
-            time.sleep(1)
-
-            overview_html = driver.find_element(By.ID, "overview").get_attribute("innerHTML")
-            soup = BeautifulSoup(overview_html, 'html.parser')
-            items = soup.find_all(['dt', 'dd'])
-
-            data = {'Keyword': keyword, 'Course URL': link}
-            last_dt = None
-            for tag in items:
-                if tag.name == 'dt':
-                    last_dt = tag.get_text(strip=True)
-                elif tag.name == 'dd' and last_dt:
-                    data[last_dt] = tag.get_text(strip=True)
-                    last_dt = None
-
-            all_data.append(data)
-            print(f"✅ ดึงข้อมูลจาก {link}")
-
-        except Exception as e:
-            print(f"❌ ดึงข้อมูลไม่ได้จาก {link}: {e}")
-            continue
-
+print("\n📦 ดึงข้อมูลครบทุกหลักสูตรแล้ว")
 driver.quit()
 
-# บันทึกข้อมูลเป็น CSV
+# บันทึกลงไฟล์ CSV
 df = pd.DataFrame(all_data)
 df.to_csv("tuition_fees.csv", index=False, encoding="utf-8-sig")
-print("📁 บันทึกข้อมูลสำเร็จใน tuition_fees.csv")
+print("📁 บันทึกข้อมูลเสร็จที่: tuition_fees.csv")
