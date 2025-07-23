@@ -48,13 +48,18 @@ for keyword in keywords:
 
         # ดึงข้อมูลภายในหน้า overview
         try:
+            # รอโหลดข้อมูล overview
             wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="overview"]/dl')))
             time.sleep(1)
+
+            # ✅ ดึงชื่อมหาวิทยาลัย
+            uni_name = driver.find_element(By.XPATH, '//*[@id="root"]/main/div[2]/div/span/span/a').text
+
             overview_dl_html = driver.find_element(By.XPATH, '//*[@id="overview"]/dl').get_attribute('innerHTML')
             soup = BeautifulSoup(overview_dl_html, 'html.parser')
 
             # สร้าง dictionary สำหรับข้อมูลแต่ละหลักสูตร
-            data = {'Keyword': keyword, 'Course URL': href}
+            data = {'Keyword': keyword, 'Course URL': href, 'University': uni_name}
             dts = soup.find_all('dt')
             dds = soup.find_all('dd')
             for dt, dd in zip(dts, dds):
@@ -63,6 +68,7 @@ for keyword in keywords:
                 data[key] = val
             all_data.append(data)
             print("✅ เก็บข้อมูลหลักสูตรเสร็จ")
+
         except:
             print("❌ ไม่สามารถดึงข้อมูลจากหน้าหลักสูตร")
 
